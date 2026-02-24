@@ -18,6 +18,15 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(__file__))
 import sheets_client
 
+STATUS_COLORS = {
+    "GO":        {"red": 0.53, "green": 0.81, "blue": 0.98},  # light blue
+    "SCRAPING":  {"red": 1.0,  "green": 0.95, "blue": 0.40},  # yellow
+    "BUILDING":  {"red": 1.0,  "green": 0.72, "blue": 0.20},  # orange
+    "DEPLOYING": {"red": 0.82, "green": 0.60, "blue": 0.98},  # purple
+    "DEPLOYED":  {"red": 0.42, "green": 0.90, "blue": 0.45},  # green
+    "ERROR":     {"red": 0.96, "green": 0.37, "blue": 0.37},  # red
+}
+
 
 def update_row(sheet_name: str, row_num: int, updates: dict) -> None:
     """Update specific columns in a sheet row. updates = {column_header: value}."""
@@ -42,6 +51,14 @@ def update_row(sheet_name: str, row_num: int, updates: dict) -> None:
     if batch:
         worksheet.batch_update(batch, value_input_option="RAW")
         print(f"[update_sheet] Updated row {row_num}: {list(updates.keys())}", file=sys.stderr)
+
+    # Apply background color to Status cell when status changes
+    if "Status" in updates and updates["Status"] in STATUS_COLORS and "Status" in headers:
+        status_val = updates["Status"]
+        col_idx = headers.index("Status") + 1
+        col_letter = _col_index_to_letter(col_idx)
+        a1 = f"{col_letter}{row_num}"
+        worksheet.format(a1, {"backgroundColor": STATUS_COLORS[status_val]})
 
 
 def _col_index_to_letter(idx: int) -> str:
