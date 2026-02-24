@@ -31,10 +31,14 @@ Your output must be a COMPLETE, READY-TO-DEPLOY single HTML file. Nothing else �
 HARD RULES (non-negotiable):
 1. Single file: all CSS in <style> tags, all JS inline in <script> if needed. Google Fonts via @import or <link> is fine.
 2. Dutch: every word visible to the user must be in Dutch.
-3. Real data only: if information is missing, skip that section entirely. NEVER invent services, staff names, testimonials, hours, or anything else.
+3. Real data only: if information is missing, skip that section entirely. NEVER invent services, staff names, testimonials, statistics, review quotes, hours, or anything else not in the provided data.
 4. Footer: must include the text "Website gemaakt door AiBoostly" as a clickable link to https://aiboostly.com
 5. Call CTA: must have a prominent click-to-call button (href="tel:..."). No contact forms — tradespeople don't fill out forms.
 6. Mobile-first responsive design — these owners read on their phones between jobs.
+7. No empty links: never output href="". If a social URL is missing from the data, don't render that icon/link.
+8. No fake maps: never render a grey placeholder. Use a real Google Maps iframe or make the address a clickable Maps link.
+9. Phone links: tel: href must strip all spaces (tel:+31201234567). Display version keeps spaces.
+10. Email: if "Email Status" is "BLACKLISTED" or "INVALID", do NOT show the email.
 
 DESIGN PHILOSOPHY:
 - Be creative. Choose colors, fonts, and layout that match the business personality and type.
@@ -42,21 +46,24 @@ DESIGN PHILOSOPHY:
 - Aim for "holy shit this looks better than what I have" within 3 seconds on mobile.
 - Use the business category, scraped branding cues, and your design judgment.
 - Modern, premium, obviously better than typical WordPress templates.
+- Add subtle CSS animations: fade-in on scroll (IntersectionObserver), hover effects on cards and buttons.
+- Use natural Dutch section headings, not corporate uppercase ("Wat we voor u doen" not "ONZE DIENSTEN").
 
 SECTIONS (include only if you have the data):
 - Hero: business name, city/location, primary CTA (call button)
 - Services: from Subtypes/Services field and scraped website content
-- About/Trust: company description, contact person, years in business if found
-- Social proof: Google rating + review count, link to Google reviews
+- About/Trust: company description, contact person, years in business if found. "About" field is a JSON string — parse it.
+- Social proof: Google rating + review count (from "Rating" and "Reviews" fields), link to Google reviews. Never invent review quotes.
 - Opening hours: parse "Monday,9am,5pm|Tuesday,9am,5pm|..." format
 - Features/amenities: from About JSON (wheelchair access, payment methods, etc)
-- Contact: phone, email, full address, Google Maps link, social media links
-- Footer: AiBoostly credit with link
+- Contact: phone, email, full address, Google Maps link/embed, social media links (only if URLs exist in data)
+- Strong closing CTA: business-specific, not generic. Include phone number again.
+- Footer: AiBoostly credit with link, nav links to sections, © year
 
 OUTPUT: raw HTML only. No markdown. No explanation. Start with <!DOCTYPE html>."""
 
 
-def build_website(business_data: dict, scraped_text: str = "") -> str:
+def build_website(business_data: dict, scraped_text: str = "", reviews_text: str = "") -> str:
     """Call Claude API via streaming and return generated HTML string."""
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
@@ -71,9 +78,12 @@ BUSINESS DATA:
 CURRENT WEBSITE CONTENT (scraped from their existing site):
 {scraped_text[:6000] if scraped_text else "Niet beschikbaar"}
 
+{reviews_text if reviews_text else ""}
+
 INSTRUCTIONS:
-1. First use web_search to research "{business_name} {city}" — look for Google reviews, what customers say, any additional services or notable information.
+1. First use web_search to research "{business_name} {city}" — look for any additional context about the business, but do NOT invent testimonials, statistics, or review quotes from search results.
 2. Then generate the complete single-file HTML website following all rules in your system prompt.
+3. Before outputting, verify every fact on the page traces back to the BUSINESS DATA or SCRAPED CONTENT above. Remove anything you can't trace.
 
 Output the raw HTML only. Nothing else."""
 
@@ -88,7 +98,7 @@ Output the raw HTML only. Nothing else."""
             with client.messages.stream(
                 model="claude-opus-4-6",
                 max_tokens=30000,
-                thinking={"type": "adaptive", "budget_tokens": 10000},
+                thinking={"type": "adaptive"},
                 system=SYSTEM_PROMPT,
                 tools=[{"type": "web_search_20250305", "name": "web_search"}],
                 messages=messages,

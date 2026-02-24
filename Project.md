@@ -10,23 +10,29 @@ The business model is a trojan horse: the €390 website gets them in the door, 
 
 ```
 Google Sheet row (business data from Outscraper)
-  → Scrape their current website for extra content
-  → Feed everything to Claude API (with web search to research the business)
-  → Claude generates a complete single-file HTML website
-  → Deploy to Netlify via file digest API
-  → Write live URL back to sheet
-  → (Later) Send cold email with preview link
+  → Firecrawl scrapes their current website (multi-page crawl, markdown output)
+  → Google Places API fetches real reviews + photos (via Google Place ID)
+  → Claude Opus 4-6 API (streaming + web_search) generates a single-file HTML website
+  → Deploy to Netlify via file digest API → live .netlify.app URL
+  → Write URL + status back to sheet
+  → (Next) Send cold email with preview link
 ```
 
-Each business gets a live `.netlify.app` URL they can click and see immediately.
+Run the pipeline:
+```bash
+python Tools/run_pipeline.py --sheet "Pipeline test" --limit 1   # test
+python Tools/run_pipeline.py --sheet "Pipeline" --limit 10        # production
+```
 
-## Data Source
+## Data Sources
 
-Outscraper scrapes Google Maps for Dutch local businesses (plumbers, electricians, auto repair, cleaning companies, chiropractors, etc). Raw data lands in the "Raw Data (Outscraper)" sheet (112 columns), then gets processed into the "Pipeline" sheet for the website builder.
+Three data sources feed every website generation:
+
+1. **Outscraper sheet** — primary source (business name, address, phone, hours, rating, etc.)
+2. **Firecrawl** — scrapes their existing website, returns clean markdown of all pages
+3. **Google Places API** — pulls up to 5 real reviews + 6 real photos using the Google Place ID
 
 ### Pipeline Sheet — Columns That Matter
-
-These are the columns you'll actually use (the sheet has 90 columns but most are Netlify deploy response junk from columns 37+):
 
 | Column | Type | Example |
 |--------|------|---------|
@@ -65,10 +71,6 @@ These are the columns you'll actually use (the sheet has 90 columns but most are
 | **Notes** | String | (error messages, manual notes) |
 | **Website's need for change** | String | (lead scoring assessment) |
 
-### Raw Data (Outscraper) — Extra Fields Available
-
-The raw sheet has richer data if needed: `reviews_per_score` (breakdown by 1-5 stars), `photos_count`, `verified` status, `business_status`, `owner_title`, `latitude`/`longitude`, `company_insights` (LinkedIn data like employee count, founded year, industry). These can be pulled in if useful for richer websites.
-
 ### Google Sheet ID
 
 Spreadsheet: `1LbFulV5XzbCUHc1mn5uWo9Dt65T60fFJaH9yq4ZcvwY`
@@ -82,142 +84,144 @@ The `Status` column drives the pipeline. Set to `GO` → pipeline picks it up �
 
 The goal is to make each business owner think "holy shit, this looks better than my current site" within 3 seconds of opening the preview link. These are cold leads — they didn't ask for this. The site has to be so good they can't ignore it.
 
-**You have creative freedom on design.** Choose colors, layout, typography, and animations that best fit the business type. An electrician's site should feel different from a chiropractor's. A premium auto shop should look different from a neighborhood plumber. Use the business category, their current branding (scraped from their site), and your judgment. The only visual constant: it should feel modern, premium, and obviously better than whatever WordPress template they're currently running.
+**Creative freedom on design.** Choose colors, layout, typography, and animations that fit the business type. An electrician's site should feel different from a chiropractor's. Use the business category, scraped branding, and real photos from the Places API.
 
 **Hard constraints (non-negotiable):**
-- Single HTML file, ALL CSS in `<style>` tag — no external CSS files (Google Fonts via @import or link is fine)
+- Single HTML file, ALL CSS in `<style>` tag — no external CSS files (Google Fonts via @import is fine)
 - Mobile-first responsive — these people read on their phones between jobs
 - ALL visible text in Dutch
 - ONLY real data — NEVER invent services, reviews, team members, or anything else. If a field is missing, skip that section entirely.
 - Footer must include: "Website gemaakt door AiBoostly" linking to https://aiboostly.com
-- Must have a click-to-call CTA button (not a contact form — tradespeople don't fill out forms)
+- Click-to-call CTA button (not a contact form — tradespeople don't fill out forms)
+- No empty `href=""` links — if a social URL is missing, don't render that icon
+- Phone `tel:` links must strip all spaces
+- If `Email Status` is BLACKLISTED or INVALID, do not show the email
 
 **Sections to include (skip any that lack data):**
 - Hero with business name, location, primary CTA
 - Services/specialties (from Subtypes/Services + scraped website content)
 - About/trust section (description, contact person, years active if found)
-- Social proof (Google rating + review count if available, link to reviews)
+- Social proof — show real Google reviews verbatim if provided (Places API), plus rating + review count
+- Real business photos from Places API as hero background or gallery
 - Opening hours (parsed from `Monday,8am,5pm|Tuesday,8am,5pm|...` format)
-- Features/amenities from About field (JSON with wheelchair access, payment methods, etc)
-- Contact details (phone, email, address, Google Maps link, social media)
-- Footer
-
-**What makes a preview site convert (trigger the business owner to respond):**
-- It loads fast and looks polished on mobile
-- It immediately shows THEIR real business name, address, phone — personal, not generic
-- The design is clearly better than their current site
-- It includes real Google reviews/rating — they see their reputation showcased
-- The CTA works (tap to call)
-- It feels like a finished product, not a mockup
+- Features/amenities from About JSON field
+- Contact details (phone, email, address, Google Maps embed/link, social media)
+- Strong closing CTA with phone number again
+- Footer with AiBoostly credit, nav links, © year
 
 ## Netlify Deployment — File Digest Method
 
-**This is the only method that works correctly.** We tried ZIP uploads — they serve HTML as `text/plain` instead of rendering it. File digest serves as `text/html`.
+**This is the only method that works correctly.** ZIP uploads serve HTML as `text/plain`. File digest serves as `text/html`.
 
 Three API calls:
-
 ```
 1. POST /api/v1/sites              → creates site, returns site_id
-2. POST /api/v1/sites/{id}/deploys → SHA1 manifest of files, returns deploy_id
-3. PUT  /api/v1/deploys/{id}/files/index.html → upload actual HTML as octet-stream
+2. POST /api/v1/sites/{id}/deploys → SHA1 manifest, returns deploy_id
+3. PUT  /api/v1/deploys/{id}/files/index.html → upload raw HTML bytes
 ```
 
 **Critical details:**
-- Step 2 body: `{ "files": { "/index.html": "<sha1-hex>" } }` — the SHA1 is of the HTML content
-- Step 3: Content-Type must be `application/octet-stream`, body is raw HTML bytes
-- Site name slug: lowercase, hyphens, no spaces, max ~50 chars, add timestamp suffix to prevent duplicates
-- Token: stored in `.env` as `NETLIFY_TOKEN`
+- Step 2 body: `{ "files": { "/index.html": "<sha1-hex>" } }` — SHA1 of the HTML content
+- Step 3: Content-Type must be `application/octet-stream`, body is raw bytes
+- Site name slug: lowercase, hyphens, strip legal suffixes (B.V., N.V., V.O.F.), normalize Dutch chars via NFD, add timestamp suffix
 
 ## Claude API — What Works
 
-**Model:** `claude-opus-4-6` produces the best websites. `claude-sonnet-4-20250514` is faster/cheaper but noticeably lower quality in design decisions and copy.
+**Model:** `claude-opus-4-6` — always. Sonnet produces noticeably lower quality design.
 
-**Web Search:** Adding `tools: [{ type: 'web_search_20250305', name: 'web_search' }]` lets Claude research the business (Google reviews, KvK registration, reputation, extra services). This is a massive quality lever — sites built with research context are richer, more accurate, and feel personalized rather than template-generated.
+**Web Search:** `tools: [{ type: 'web_search_20250305', name: 'web_search' }]` — massive quality lever. Claude researches the business online during generation.
 
-**Extended Thinking:** `thinking: { type: 'enabled', budget_tokens: 10000 }` improves layout decisions and code quality. Compatible with web_search.
+**Streaming is required.** Non-streaming calls hang indefinitely at the HTTP header receive phase (no timeout fires). Use `client.messages.stream()` context manager. The stream immediately opens the connection and delivers chunks as Claude works.
 
-**System prompt strategy:** Don't hardcode a fixed design spec. Give Claude the hard constraints (single HTML file, Dutch text, real data only, AiBoostly footer), the business data, and tell it to choose a design that fits the business type. Include the scraped website content so Claude can pick up on existing branding, colors, and tone.
+**Thinking + web_search = HANG. Do not combine them.** `thinking: { type: 'adaptive' }` combined with `web_search_20250305` causes the Anthropic API to never return headers. Confirmed through testing. Use web_search alone — it's the bigger quality lever anyway.
 
-**Response handling:** With web_search and thinking enabled, the response contains mixed content blocks (`thinking`, `tool_use`, `tool_result`, `text`). The HTML is always in the **last `text` block**. Filter for `type === 'text'` and take the last one.
+**Response handling:** With web_search, the response contains mixed blocks (`server_tool_use`, `web_search_tool_result`, `text`). The HTML is always in the **last `text` block**. Use `stream.get_final_message()` then iterate `reversed(response.content)`.
 
-**Markdown fences:** Claude sometimes wraps HTML in ` ```html ... ``` ` — strip these before deploying.
+**Markdown fences:** Claude sometimes wraps HTML in ` ```html ... ``` ` — strip before deploying.
 
-**529 errors:** Opus gets overloaded regularly. Implement retry with backoff (3 attempts, 15-20s wait between). Sonnet almost never 529s.
+**529 errors:** Opus gets overloaded. Retry 3× with 20s/40s backoff.
 
-**Timeouts:** Opus with web_search + thinking can take 60-120 seconds. Set HTTP timeout to at least 180s.
+**Timing:** Opus with web_search takes 30-90 seconds per site with streaming.
 
-**Tokens:** stored in `.env` as `ANTHROPIC_API_KEY`
+## Scraping — Firecrawl
 
-## Scraping the Business Website
+Firecrawl replaces raw HTTP/BeautifulSoup scraping. It handles JS-rendered sites, bot protection, and returns clean markdown.
 
-Before calling Claude, scrape the business's current website to extract text content. This gives Claude context about their services, team, and tone.
+**Two-tier approach:**
+1. Try multi-page crawl first (`/v1/crawl`, maxDepth=1, limit=5 pages) — gets services, about, team subpages
+2. Fall back to single-page scrape (`/v1/scrape`) if crawl fails or times out (45s)
+3. If both fail, continue without scraped text — Claude still has Outscraper data + web_search
 
-- Simple HTTP GET with a browser User-Agent
-- Strip `<script>`, `<style>` tags, then all HTML tags
-- Collapse whitespace, truncate to ~5000-8000 chars (saves tokens)
-- If scrape fails (SSL errors, timeouts, no website), continue anyway — Claude has Outscraper data + web_search
+Result is truncated to 8000 chars before being sent to Claude.
+
+## Google Places API — Reviews & Photos
+
+Uses `Google Place ID` (already in every Pipeline row) to fetch in a single API call:
+- Up to 5 real reviews (Dutch language preferred): author, star rating, full text, time ago
+- Up to 6 real business photos: direct URL with `maxwidth=1200`
+
+Reviews are included verbatim in the Claude prompt. Photos are passed as direct `<img src>` URLs.
+
+`language=nl` returns Dutch-language reviews where available.
 
 ## Lessons Learned the Hard Way
 
-**n8n-specific (if relevant to your tooling choice):**
-- `fetch()` does NOT exist in n8n Code tool sandbox — must use `this.helpers.httpRequest()`
-- n8n Code nodes have 60-second execution timeout — too short for Opus with web_search
-- n8n HTTP Request nodes respect custom timeouts (set to 120-180s for Claude)
-- `$fromAI()` parameter passing to HTTP Request tools is unreliable — Code tools with `query.param` work better
-- Agent/langchain nodes add complexity for zero benefit when a single API call does the job
-- Google Sheets "appendOrUpdate" nodes break when columns change — fragile
+**Claude API:**
+- `thinking: adaptive` + `web_search_20250305` hangs indefinitely — never combine them
+- Non-streaming Opus calls hang at `_receive_response_headers` — always use streaming
+- `thinking.adaptive.budget_tokens` is not a valid parameter — adaptive sets its own budget
+- HTML always in last `text` block — iterate `reversed(response.content)`
 
-**General pipeline gotchas:**
-- Some business websites have SSL certificate errors → handle gracefully, skip scraping
-- Working Hours format varies: `Monday,8am,5pm|Tuesday,8am,5pm` is the Outscraper standard
-- About field is sometimes JSON, sometimes plain text — handle both
-- Photo URLs are Google streetview thumbnails — they work as hero backgrounds with dark overlay
-- Logo URLs are sometimes broken or low-res — always have a fallback (just text)
-- Business names can contain BV, B.V., parentheses — strip these from URL slugs
-- Dutch UTF-8 characters (ë, é, ö, etc) need `normalize('NFD')` before slugifying
+**Codespaces / OAuth:**
+- `run_local_server()` opens a local port; browser redirects to `localhost:8080` which hits the user's machine, not the Codespace
+- Fix: use `flow.authorization_url()` + manual redirect URL paste + `flow.fetch_token(code=...)`
+- Token stored as `token.pickle` (pickle, not json)
+
+**Google Sheets:**
+- `gspread.batch_update()` with A1 notation is faster than `update_cell()` for multiple fields
+- Find columns by header name, not hardcoded index — headers can shift
+- `update_row()` in `Tools/update_sheet.py` handles this dynamically
+
+**Netlify:**
+- File digest: SHA1 must be of the raw UTF-8 bytes, not the string
+- Site name collisions prevented by appending Unix timestamp to slug
+- Strip B.V., N.V., V.O.F. and normalize Dutch UTF-8 chars (NFD + ASCII encode) before slugifying
+
+**General:**
+- About field is sometimes JSON, sometimes plain text — Claude handles both
+- Working Hours: `Monday,8am,5pm|Tuesday,8am,5pm` is the Outscraper standard
+- Email Status BLACKLISTED/INVALID → don't show email in website
 
 ## API Credentials
 
-All stored in `.env` — never hardcoded anywhere else:
+All stored in `.env` — never hardcoded:
 ```
-ANTHROPIC_API_KEY=       # Claude API (sk-ant-api03-...)
-NETLIFY_TOKEN=           # Netlify deploy (nfp_...)
-GOOGLE_SHEETS_ID=1LbFulV5XzbCUHc1mn5uWo9Dt65T60fFJaH9yq4ZcvwY
-```
-
-**Google Sheets:** Uses OAuth2 credentials (`credentials.json` / `token.json`). Production sheet: "Pipeline", test sheet: "Pipeline test".
-
-## The Current n8n Implementation (Reference)
-
-There's a working n8n workflow (`LeadPilot Website Builder`, ID `d7z4MtRCE4eyl0GR`) on `aiboostly.app.n8n.cloud` that does this pipeline. It works but is fragile — n8n has limitations with long-running AI tasks, Google Sheets column changes break nodes, and the fixed dark-theme design spec produces samey-looking sites. The flow:
-
-```
-Sheet Trigger → Filter GO → First Row → Status: SCRAPING
-  → Fetch Website (HTTP GET) → Extract Text Content (strip HTML)
-  → Status: BUILDING → Prepare Claude Request (build JSON body)
-  → Claude API (HTTP POST, 120s timeout) → Extract HTML (last text block)
-  → Status: DEPLOYING → Build SHA1 hash → Netlify Create Site
-  → Merge Site Info → Deploy file digest → Status: DEPLOYED + URL
-  
-  Error path: On Error → Fetch Execution Data → Extract Error → Status: ERROR
+ANTHROPIC_API_KEY=        # Claude API
+FIRECRAWL_API_KEY=        # Firecrawl website scraping
+NETLIFY_TOKEN=            # Netlify deploy
+GOOGLE_MAPS_API_KEY=      # Google Places API (reviews + photos)
+GOOGLE_SHEETS_ID=         # 1LbFulV5XzbCUHc1mn5uWo9Dt65T60fFJaH9yq4ZcvwY
+GOOGLE_SHEETS_PIPELINE=   # Pipeline
+GOOGLE_SHEETS_PIPELINE_TEST= # Pipeline test
 ```
 
-The goal of this repo is to replicate — and improve — this pipeline outside of n8n, where we have full control over execution time, retry logic, and error handling.
+**Google Sheets auth:** OAuth2 via `credentials.json` (Desktop App from Google Cloud Console). Run `python Tools/setup_google_auth.py` once to generate `token.pickle`. In Codespaces: copy-paste flow (no local server).
 
 ## Target Audience Context
 
-These websites target Dutch tradespeople: plumbers, electricians, HVAC installers, auto repair shops, cleaning companies, chiropractors. They're reading on mobile between jobs. The generated sites and any outreach must:
+Dutch tradespeople: plumbers, electricians, HVAC installers, auto repair shops, cleaning companies, chiropractors. Reading on mobile between jobs.
 
-- Be in Dutch (all visible text)
-- Use zero jargon — speak their language
-- Show real data only — fake testimonials or invented services destroy trust
-- Load fast and look premium on mobile
-- Have clear CTAs (call button, not a contact form)
+- All visible text in Dutch
+- Zero jargon — speak their language
+- Real data only — fake testimonials destroy trust instantly
+- Fast-loading, premium on mobile
+- Clear CTAs (call button, not a form)
 
 ## What Success Looks Like
 
-1. Feed a business name/data into the pipeline
-2. Get a live, beautiful, mobile-responsive preview website at `{slug}.netlify.app`
-3. The site uses real data, researched reviews, and looks premium
-4. The URL gets written back for the outreach step
-5. The whole thing runs reliably without manual intervention
+1. Set a row to `GO` in the sheet
+2. `python Tools/run_pipeline.py --sheet "Pipeline test" --limit 1` completes without error
+3. Live site at `{slug}.netlify.app` loads fast, looks premium, shows real business data
+4. Real Google reviews and photos appear on the site
+5. Status in sheet updated to `DEPLOYED` with the URL
+6. The whole thing runs in under 2 minutes per business

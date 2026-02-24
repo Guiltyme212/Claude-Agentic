@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import read_sheet
 import update_sheet
 import scrape_website
+import fetch_reviews
 import build_website
 import deploy_netlify
 
@@ -58,12 +59,17 @@ def run(sheet_name: str = "Pipeline test", limit: int = 1) -> None:
             update_sheet.update_row(sheet_name, row_num, {"Status": "SCRAPING"})
             scraped_text = scrape_website.scrape(website_url)
 
+            # ── FETCH REVIEWS + PHOTOS ────────────────────────────────────
+            place_id = row.get("Google Place ID", "").strip()
+            place_data = fetch_reviews.fetch(place_id)
+            reviews_text = fetch_reviews.format_for_prompt(place_data)
+
             # ── BUILDING ──────────────────────────────────────────────────
             update_sheet.update_row(sheet_name, row_num, {"Status": "BUILDING"})
 
             # Strip internal keys before sending to Claude
             business_data = {k: v for k, v in row.items() if not k.startswith("_")}
-            html = build_website.build_website(business_data, scraped_text)
+            html = build_website.build_website(business_data, scraped_text, reviews_text)
 
             # Save HTML to .tmp for inspection / debugging
             safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in business_name)[:50]
