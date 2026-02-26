@@ -36,6 +36,9 @@ def get_go_rows(sheet_name: str = None, limit: int = None) -> list[dict]:
     headers = all_values[0]
     rows = []
 
+    total_rows = len(all_values) - 1
+    print(f"[read_sheet] Scanning {total_rows} rows in '{sheet_name}'...", file=sys.stderr)
+
     for row_idx, row_values in enumerate(all_values[1:], start=2):  # row 1 = header
         # Pad row to header length if needed
         while len(row_values) < len(headers):
@@ -44,11 +47,12 @@ def get_go_rows(sheet_name: str = None, limit: int = None) -> list[dict]:
         row_dict = dict(zip(headers, row_values))
         row_dict["_row"] = row_idx  # actual sheet row number for updates
 
-        if row_dict.get("Status", "").strip() == "GO":
+        if row_dict.get("Status", "").strip().upper() == "GO":
             rows.append(row_dict)
             if limit and len(rows) >= limit:
                 break
 
+    print(f"[read_sheet] Found {len(rows)} GO row(s) out of {total_rows} total.", file=sys.stderr)
     return rows
 
 

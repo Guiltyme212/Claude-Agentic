@@ -5,7 +5,7 @@ Generate a premium HTML website for a Dutch local business using Claude API.
 Uses:
 - claude-opus-4-6 (best quality)
 - web_search tool (Claude researches the business)
-- extended thinking (better layout and copy decisions)
+- Font Awesome 6 icons (no emojis)
 
 Usage:
     python Tools/build_website.py --data '{"Business Name":"..."}' [--scraped-text "..."] [--out output.html]
@@ -39,6 +39,7 @@ HARD RULES (non-negotiable):
 8. No fake maps: never render a grey placeholder. Use a real Google Maps iframe or make the address a clickable Maps link.
 9. Phone links: tel: href must strip all spaces (tel:+31201234567). Display version keeps spaces.
 10. Email: if "Email Status" is "BLACKLISTED" or "INVALID", do NOT show the email.
+11. No emojis anywhere — ever. Not in headings, buttons, lists, or body text. Use Font Awesome 6 icons instead: load via <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"> and use <i class="fas fa-phone"></i>, <i class="fas fa-map-marker-alt"></i>, <i class="fas fa-star"></i>, etc. Icons should feel intentional and premium, not decorative clutter.
 
 DESIGN PHILOSOPHY:
 - Be creative. Choose colors, fonts, and layout that match the business personality and type.

@@ -3,7 +3,7 @@
 LeadPilot main pipeline orchestrator.
 
 Reads rows with Status=GO from the Pipeline sheet, runs the full pipeline for each:
-  GO → SCRAPING → BUILDING → DEPLOYING → DEPLOYED (with Preview URL)
+  GO → SCRAPING → BUILDING → DEPLOYING → DEPLOYED → EMAILING → DONE
   Any failure → ERROR (with Notes explaining what went wrong)
 
 Usage:
@@ -30,6 +30,7 @@ import scrape_website
 import fetch_reviews
 import build_website
 import deploy_netlify
+import draft_email
 
 TMP_DIR = os.path.join(os.path.dirname(__file__), "..", ".tmp")
 
@@ -87,8 +88,20 @@ def run(sheet_name: str = "Pipeline test", limit: int = 1) -> None:
                 "Status": "DEPLOYED",
                 "Preview URL": live_url,
             })
+            print(f"  DEPLOYED: {live_url}")
 
-            print(f"  DEPLOYED: {live_url}\n")
+            # ── EMAIL DRAFTING ────────────────────────────────────────────
+            email_status = row.get("Email Status", "").strip().upper()
+            if email_status in ("BLACKLISTED", "INVALID"):
+                print(f"  Skipping email: Email Status is {row.get('Email Status')}")
+            else:
+                update_sheet.update_row(sheet_name, row_num, {"Status": "EMAILING"})
+                email_body = draft_email.draft_email(business_data, live_url, scraped_text, reviews_text)
+                update_sheet.update_row(sheet_name, row_num, {"Email Draft": email_body})
+
+            # ── DONE ─────────────────────────────────────────────────────
+            update_sheet.update_row(sheet_name, row_num, {"Status": "DONE"})
+            print(f"  DONE\n")
 
         except Exception as e:
             tb = traceback.format_exc()

@@ -24,6 +24,8 @@ STATUS_COLORS = {
     "BUILDING":  {"red": 1.0,  "green": 0.72, "blue": 0.20},  # orange
     "DEPLOYING": {"red": 0.82, "green": 0.60, "blue": 0.98},  # purple
     "DEPLOYED":  {"red": 0.42, "green": 0.90, "blue": 0.45},  # green
+    "EMAILING":  {"red": 0.80, "green": 0.93, "blue": 0.97},  # light cyan
+    "DONE":      {"red": 0.42, "green": 0.90, "blue": 0.45},  # green
     "ERROR":     {"red": 0.96, "green": 0.37, "blue": 0.37},  # red
 }
 
