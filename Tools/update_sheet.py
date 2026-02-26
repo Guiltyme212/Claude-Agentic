@@ -19,14 +19,16 @@ sys.path.insert(0, os.path.dirname(__file__))
 import sheets_client
 
 STATUS_COLORS = {
-    "GO":        {"red": 0.53, "green": 0.81, "blue": 0.98},  # light blue
-    "SCRAPING":  {"red": 1.0,  "green": 0.95, "blue": 0.40},  # yellow
-    "BUILDING":  {"red": 1.0,  "green": 0.72, "blue": 0.20},  # orange
-    "DEPLOYING": {"red": 0.82, "green": 0.60, "blue": 0.98},  # purple
-    "DEPLOYED":  {"red": 0.42, "green": 0.90, "blue": 0.45},  # green
-    "EMAILING":  {"red": 0.80, "green": 0.93, "blue": 0.97},  # light cyan
-    "DONE":      {"red": 0.42, "green": 0.90, "blue": 0.45},  # green
-    "ERROR":     {"red": 0.96, "green": 0.37, "blue": 0.37},  # red
+    "GO":                      {"red": 0.53, "green": 0.81, "blue": 0.98},  # light blue
+    "SCRAPING":                {"red": 1.0,  "green": 0.95, "blue": 0.40},  # yellow
+    "BUILDING":                {"red": 1.0,  "green": 0.72, "blue": 0.20},  # orange
+    "DEPLOYING":               {"red": 0.82, "green": 0.60, "blue": 0.98},  # purple
+    "Deployed":                {"red": 0.42, "green": 0.90, "blue": 0.45},  # green
+    "EMAILING":                {"red": 0.80, "green": 0.93, "blue": 0.97},  # light cyan
+    "Email Draft Written":     {"red": 0.70, "green": 0.85, "blue": 0.95},  # soft blue
+    "SENDING":                 {"red": 0.98, "green": 0.80, "blue": 0.90},  # light pink
+    "Email sent succesfully":  {"red": 0.30, "green": 0.85, "blue": 0.40},  # bright green
+    "ERROR":                   {"red": 0.96, "green": 0.37, "blue": 0.37},  # red
 }
 
 

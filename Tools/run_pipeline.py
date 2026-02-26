@@ -3,7 +3,7 @@
 LeadPilot main pipeline orchestrator.
 
 Reads rows with Status=GO from the Pipeline sheet, runs the full pipeline for each:
-  GO → SCRAPING → BUILDING → DEPLOYING → DEPLOYED → EMAILING → DONE
+  GO → SCRAPING → BUILDING → DEPLOYING → DEPLOYED → EMAILING → SENDING → DONE
   Any failure → ERROR (with Notes explaining what went wrong)
 
 Usage:
@@ -31,6 +31,7 @@ import fetch_reviews
 import build_website
 import deploy_netlify
 import draft_email
+import send_email
 
 TMP_DIR = os.path.join(os.path.dirname(__file__), "..", ".tmp")
 
@@ -85,23 +86,52 @@ def run(sheet_name: str = "Pipeline test", limit: int = 1) -> None:
 
             # ── DEPLOYED ──────────────────────────────────────────────────
             update_sheet.update_row(sheet_name, row_num, {
-                "Status": "DEPLOYED",
+                "Status": "Deployed",
                 "Preview URL": live_url,
             })
-            print(f"  DEPLOYED: {live_url}")
+            print(f"  Deployed: {live_url}")
 
             # ── EMAIL DRAFTING ────────────────────────────────────────────
             email_status = row.get("Email Status", "").strip().upper()
             if email_status in ("BLACKLISTED", "INVALID"):
                 print(f"  Skipping email: Email Status is {row.get('Email Status')}")
-            else:
-                update_sheet.update_row(sheet_name, row_num, {"Status": "EMAILING"})
-                email_body = draft_email.draft_email(business_data, live_url, scraped_text, reviews_text)
-                update_sheet.update_row(sheet_name, row_num, {"Email Draft": email_body})
+                update_sheet.update_row(sheet_name, row_num, {"Status": "Deployed"})
+                print(f"  Deployed (no email)\n")
+                continue
 
-            # ── DONE ─────────────────────────────────────────────────────
-            update_sheet.update_row(sheet_name, row_num, {"Status": "DONE"})
-            print(f"  DONE\n")
+            update_sheet.update_row(sheet_name, row_num, {"Status": "EMAILING"})
+            email_body = draft_email.draft_email(business_data, live_url, scraped_text, reviews_text)
+            update_sheet.update_row(sheet_name, row_num, {
+                "Status": "Email Draft Written",
+                "Email Draft": email_body,
+            })
+            print(f"  Email Draft Written")
+
+            # ── SENDING ──────────────────────────────────────────────────
+            to_email = row.get("Email", "").strip()
+            if not to_email:
+                print(f"  Skipping send: no email address in sheet")
+                update_sheet.update_row(sheet_name, row_num, {"Status": "Email Draft Written"})
+                print(f"  Email Draft Written (no recipient)\n")
+                continue
+
+            update_sheet.update_row(sheet_name, row_num, {"Status": "SENDING"})
+            test_mode = bool(os.getenv("SMTP_TEST_EMAIL"))
+            send_result = send_email.send_email(
+                to_email=to_email,
+                email_body=email_body,
+                business_name=business_name,
+                test_mode=test_mode,
+            )
+
+            # ── SENT ────────────────────────────────────────────────────
+            from datetime import datetime
+            sent_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+            update_sheet.update_row(sheet_name, row_num, {
+                "Status": "Email sent succesfully",
+                "Sent Date": sent_date,
+            })
+            print(f"  Email sent succesfully ({sent_date})\n")
 
         except Exception as e:
             tb = traceback.format_exc()
