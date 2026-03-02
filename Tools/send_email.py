@@ -21,6 +21,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr, formatdate, make_msgid
 from dotenv import load_dotenv
+from email_template import build_html_email
 
 load_dotenv()
 
@@ -73,15 +74,8 @@ def send_email(
     plain_body = email_body
     msg.attach(MIMEText(plain_body, "plain", "utf-8"))
 
-    # HTML version (convert newlines to <br>, keep it simple — no heavy templates)
-    html_lines = email_body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    html_lines = html_lines.replace("\n", "<br>\n")
-    html_body = f"""\
-<html>
-<body style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
-<p>{html_lines}</p>
-</body>
-</html>"""
+    # HTML version (designed template with CTA button + AiBoostly branding)
+    html_body = build_html_email(email_body, business_name)
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     # Send with retry
