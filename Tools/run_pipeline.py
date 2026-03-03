@@ -116,7 +116,7 @@ def run(sheet_name: str = "Pipeline test", limit: int = 1) -> None:
                 continue
 
             update_sheet.update_row(sheet_name, row_num, {"Status": "SENDING"})
-            test_mode = bool(os.getenv("SMTP_TEST_EMAIL"))
+            test_mode = bool(os.getenv("RESEND_TEST_EMAIL") or os.getenv("SMTP_TEST_EMAIL"))
             send_result = send_email.send_email(
                 to_email=to_email,
                 email_body=email_body,

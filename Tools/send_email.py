@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Send a cold email via SMTP (GoDaddy/Outlook).
+Send a cold email via Resend API.
 
-Sends personalized emails directly from dan@aiboostly.com using SMTP.
-Test mode redirects all emails to SMTP_TEST_EMAIL.
+Sends personalized emails from dan@aiboostly.com using Resend.
+Test mode redirects all emails to RESEND_TEST_EMAIL.
 
 Usage:
     python Tools/send_email.py --to "info@business.nl" --body "Hoi..." --business-name "Jansen"
@@ -15,12 +15,10 @@ Output: JSON result to stdout, logs to stderr.
 import sys
 import os
 import json
-import smtplib
+import time
 import argparse
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.utils import formataddr, formatdate, make_msgid
 from dotenv import load_dotenv
+import resend
 from email_template import build_html_email
 
 load_dotenv()
@@ -36,75 +34,61 @@ def send_email(
     test_mode: bool = False,
 ) -> dict:
     """
-    Send a personalized cold email via SMTP.
+    Send a personalized cold email via Resend API.
 
     Returns dict: {"status": "sent", "to_email": "...", "subject": "..."}
     """
-    # SMTP config from env
-    smtp_host = os.getenv("SMTP_HOST", "smtp.office365.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-    from_name = os.getenv("SMTP_FROM_NAME", "Dan van AiBoostly")
-    from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user)
+    api_key = os.getenv("RESEND_API_KEY")
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY must be set in .env")
 
-    if not smtp_user or not smtp_password:
-        raise RuntimeError("SMTP_USER and SMTP_PASSWORD must be set in .env")
+    resend.api_key = api_key
+
+    from_name = os.getenv("RESEND_FROM_NAME", os.getenv("SMTP_FROM_NAME", "Dan van AiBoostly"))
+    from_email = os.getenv("RESEND_FROM_EMAIL", os.getenv("SMTP_FROM_EMAIL", "dan@contact.aiboostly.com"))
 
     # Test mode: redirect to test email
     actual_recipient = to_email
     if test_mode:
-        test_email = os.getenv("SMTP_TEST_EMAIL", "dan.ivdnis@gmail.com")
+        test_email = os.getenv("RESEND_TEST_EMAIL", os.getenv("SMTP_TEST_EMAIL", "dan.ivdnis@gmail.com"))
         print(f"[send_email] TEST MODE: redirecting {to_email} → {test_email}", file=sys.stderr)
         actual_recipient = test_email
 
     # Subject line
     subject = f"Preview website voor {business_name}" if business_name else "Uw preview website"
 
-    # Build MIME message (multipart/alternative: plain text + HTML)
-    msg = MIMEMultipart("alternative")
-    msg["From"] = formataddr((from_name, from_email))
-    msg["To"] = actual_recipient
-    msg["Subject"] = subject
-    msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid(domain=from_email.split("@")[1])
-    msg["Reply-To"] = formataddr((from_name, from_email))
-
-    # Plain text version (the email body from draft_email is already plain text)
-    plain_body = email_body
-    msg.attach(MIMEText(plain_body, "plain", "utf-8"))
-
-    # HTML version (designed template with CTA button + AiBoostly branding)
+    # Build HTML version
     html_body = build_html_email(email_body, business_name)
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    # Send with retry
-    print(f"[send_email] Sending to {actual_recipient} via {smtp_host}:{smtp_port}...", file=sys.stderr)
+    print(f"[send_email] Sending to {actual_recipient} via Resend...", file=sys.stderr)
 
     last_error = None
     for attempt in range(MAX_RETRIES):
         try:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.sendmail(from_email, [actual_recipient], msg.as_string())
+            params: resend.Emails.SendParams = {
+                "from": f"{from_name} <{from_email}>",
+                "to": [actual_recipient],
+                "subject": subject,
+                "html": html_body,
+                "text": email_body,
+                "reply_to": f"{from_name} <{from_email}>",
+            }
 
-            print(f"[send_email] Sent successfully to {actual_recipient}", file=sys.stderr)
+            result = resend.Emails.send(params)
+
+            print(f"[send_email] Sent successfully to {actual_recipient} (id: {result.get('id', 'unknown')})", file=sys.stderr)
             return {
                 "status": "sent",
                 "to_email": actual_recipient,
                 "subject": subject,
+                "resend_id": result.get("id"),
             }
 
-        except smtplib.SMTPAuthenticationError as e:
-            raise RuntimeError(f"SMTP auth failed: {e}") from e
-
-        except (smtplib.SMTPException, OSError) as e:
+        except Exception as e:
             last_error = e
             if attempt < MAX_RETRIES - 1:
                 wait = [5, 10, 20][attempt]
-                print(f"[send_email] SMTP error, retrying in {wait}s (attempt {attempt+1}/{MAX_RETRIES}): {e}", file=sys.stderr)
-                import time
+                print(f"[send_email] Resend error, retrying in {wait}s (attempt {attempt+1}/{MAX_RETRIES}): {e}", file=sys.stderr)
                 time.sleep(wait)
                 continue
             raise
@@ -113,7 +97,7 @@ def send_email(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Send email via SMTP")
+    parser = argparse.ArgumentParser(description="Send email via Resend")
     parser.add_argument("--to", required=True, help="Recipient email address")
     parser.add_argument("--body", required=True, help="Email body text")
     parser.add_argument("--business-name", default="", help="Business name (for subject line)")
@@ -122,7 +106,7 @@ def main():
 
     test_mode = bool(args.test_email)
     if args.test_email:
-        os.environ["SMTP_TEST_EMAIL"] = args.test_email
+        os.environ["RESEND_TEST_EMAIL"] = args.test_email
 
     result = send_email(
         to_email=args.to,
