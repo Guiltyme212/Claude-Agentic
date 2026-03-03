@@ -18,6 +18,7 @@ import re
 import argparse
 import os
 import time
+from urllib.parse import urlparse, unquote
 import requests
 from dotenv import load_dotenv
 
@@ -117,6 +118,26 @@ def _crawl_site(url: str, max_chars: int) -> str:
     raise TimeoutError(f"Crawl timed out after {CRAWL_TIMEOUT}s")
 
 
+def _normalize_url(url: str) -> str:
+    """Normalize messy URLs from Outscraper/Google data to a clean homepage URL.
+
+    Outscraper URLs often have double-encoded UTM params and point to deep pages.
+    For crawling we want the homepage so Firecrawl can discover subpages itself.
+    """
+    # Decode any percent-encoding (handles double-encoding too)
+    cleaned = unquote(unquote(url)).strip()
+
+    parsed = urlparse(cleaned)
+    if not parsed.scheme or not parsed.netloc:
+        return url  # can't parse, return as-is
+
+    # Use just scheme + domain (homepage) for crawling
+    homepage = f"{parsed.scheme}://{parsed.netloc}"
+    if homepage != url:
+        print(f"[scrape_website] Normalized URL: {url[:80]}... → {homepage}", file=sys.stderr)
+    return homepage
+
+
 def scrape(url: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     """
     Scrape url via Firecrawl crawl (multi-page) with single-page fallback.
@@ -129,6 +150,8 @@ def scrape(url: str, max_chars: int = DEFAULT_MAX_CHARS) -> str:
     if not api_key:
         print("[scrape_website] FIRECRAWL_API_KEY not set, skipping scrape", file=sys.stderr)
         return ""
+
+    url = _normalize_url(url)
 
     # Try multi-page crawl first
     try:
