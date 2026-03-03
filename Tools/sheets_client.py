@@ -28,8 +28,11 @@ def get_client() -> gspread.Client:
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            with open(token_path, "wb") as f:
-                pickle.dump(creds, f)
+            try:
+                with open(token_path, "wb") as f:
+                    pickle.dump(creds, f)
+            except OSError:
+                pass  # Railway ephemeral filesystem — refresh worked, just can't persist
         else:
             raise RuntimeError(
                 "No valid Google credentials found.\n"
